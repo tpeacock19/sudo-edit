@@ -123,11 +123,11 @@ attention to case differences."
 (defun sudo-edit-set-header ()
   "*Display a warning in header line of the current buffer.
 This function is suitable to add to `find-file-hook' and `dired-file-hook'."
-  (when (string-equal
-         (file-remote-p (or buffer-file-name default-directory) 'user)
-         "root")
+  (when-let ((user
+              (file-remote-p (or buffer-file-name
+                                 default-directory) 'user)))
     (setq header-line-format
-          (propertize "--- WARNING: EDITING FILE AS ROOT! %-"
+          (propertize (format "--- WARNING: EDITING FILE AS %s! %%-" (upcase user))
                       'face 'sudo-edit-header-face))))
 
 ;;;###autoload
@@ -199,6 +199,15 @@ This function is suitable to add to `find-file-hook' and `dired-file-hook'."
           (sudo-edit-make-tramp-file-name remote-method user (tramp-file-name-domain vec) (tramp-file-name-host vec) (tramp-file-name-port vec) (tramp-file-name-localname vec) hop)))
     (sudo-edit-make-tramp-file-name sudo-edit-local-method user nil "localhost" nil (expand-file-name filename))))
 
+(defun sudo-edit-default-local-user (&optional filename)
+  (let* ((file (or filename default-directory) )
+         (host (tramp-file-host-name+ file))
+         (user (if (or (not host)
+                       (equal host "localhost"))
+                   (user-login-name (file-attribute-user-id (file-attributes file)))
+                 sudo-edit-user)))
+    user))
+
 ;;;###autoload
 (defun sudo-edit (&optional arg)
   "Edit currently visited file as another user, by default `sudo-edit-user'.
@@ -206,11 +215,11 @@ This function is suitable to add to `find-file-hook' and `dired-file-hook'."
 With a prefix ARG prompt for a file to visit.  Will also prompt
 for a file to visit if current buffer is not visiting a file."
   (interactive "P")
-  (let ((user (if arg
-                  (completing-read "User: " (and (fboundp 'system-users) (system-users)) nil nil nil 'sudo-edit-user-history sudo-edit-user)
-                sudo-edit-user))
-        (filename (or buffer-file-name
-                      (and (derived-mode-p 'dired-mode) default-directory))))
+  (let* ((filename (or buffer-file-name
+                       (and (derived-mode-p 'dired-mode) default-directory)))
+         (user (if arg
+                   (completing-read "User: " (and (fboundp 'system-users) (system-users)) nil nil nil 'sudo-edit-user-history sudo-edit-user)
+                 (sudo-edit-default-local-user filename))))
     (cl-assert (not (string-blank-p user)) nil "User must not be a empty string")
     (if (or arg (not filename))
         (find-file (sudo-edit-filename (read-file-name (format "Find file (as \"%s\"): " user)) user))
@@ -222,9 +231,9 @@ for a file to visit if current buffer is not visiting a file."
 (defun sudo-edit-find-file (filename)
   "Edit FILENAME as another user, by default `sudo-edit-user'."
   (interactive
-   (list (read-file-name (format "Find file (as \"%s\"): " sudo-edit-user))))
-  (cl-assert (not (string-blank-p sudo-edit-user)) nil "User must not be a empty string")
-  (find-file (sudo-edit-filename filename sudo-edit-user)))
+   (list (read-file-name (format "Find file (as \"%s\"): " (sudo-edit-default-local-user default-directory)))))
+  (cl-assert (not (string-blank-p (sudo-edit-default-local-user filename))) nil "User must not be a empty string")
+  (find-file (sudo-edit-filename filename (sudo-edit-default-local-user filename))))
 
 (define-obsolete-function-alias 'sudo-edit-current-file 'sudo-edit "2016-09-05")
 
